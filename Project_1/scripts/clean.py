@@ -65,3 +65,4 @@ aligned.to_csv(INTERIM / "aligned_btc_eth_ltc.csv", index=False)
 print("Saved:", INTERIM / "aligned_btc_eth_ltc.csv")
 print("Span:", aligned["date"].min().date(), "→", aligned["date"].max().date(), "rows:", len(aligned))
 print("Columns:", list(aligned.columns))
+#test
