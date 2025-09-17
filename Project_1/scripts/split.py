@@ -1,36 +1,88 @@
+"""
+Purpose: Chronological 70/15/15 split + z-score scaling using TRAIN-only stats.
+Reads: data/processed/btc_features_h1_full.csv, btc_features_h7_full.csv
+Writes: data/processed/h1_{train,val,test}.csv and h7_{train,val,test}.csv
+"""
 import pandas as pd
 from pathlib import Path
 
 PROCESSED = Path("data/processed")
-PROCESSED.mkdir(parents=True, exist_ok=True)
 
-def split_scale_save(h, train_end="2019-12-31", val_start="2020-01-01", val_end="2020-12-31", test_start="2021-01-01"):
-    df = pd.read_csv(PROCESSED / f"btc_features_h{h}_full.csv", parse_dates=["date"]).set_index("date").sort_index()
-    ycol = f"y_btc_close_t+{h}"
-    cols = [c for c in df.columns if c != ycol]
-    train = df.loc[:train_end].copy()
-    val   = df.loc[val_start:val_end].copy()
-    test  = df.loc[test_start:].copy()
-    train = train.dropna()
-    val   = val.dropna()
-    test  = test.dropna()
-    Xtr, ytr = train[cols], train[ycol]
-    Xva, yva = val[cols],   val[ycol]
-    Xte, yte = test[cols],  test[ycol]
-    means = Xtr.mean()
-    stds  = Xtr.std(ddof=0).replace(0, 1.0)
-    Xtr = (Xtr - means) / stds
-    Xva = (Xva - means) / stds
-    Xte = (Xte - means) / stds
-    def pack(X, y):
-        out = X.copy()
-        out.insert(0, "date", X.index)
-        out[ycol] = y.values
-        return out.reset_index(drop=True)
-    pack(Xtr, ytr).to_csv(PROCESSED / f"h{h}_train.csv", index=False)
-    pack(Xva, yva).to_csv(PROCESSED / f"h{h}_val.csv", index=False)
-    pack(Xte, yte).to_csv(PROCESSED / f"h{h}_test.csv", index=False)
-    print(f"[h={h}] train={len(Xtr)} val={len(Xva)} test={len(Xte)}")
+def autosplit_by_date(df: pd.DataFrame):
+    """
+    Chronological ~70/15/15 split using date quantiles.
+    Ensures each split is non-empty (nudges boundaries if needed).
+    """
+    df = df.sort_values("date").reset_index(drop=True)
+    q70 = df["date"].quantile(0.70)
+    q85 = df["date"].quantile(0.85)
 
-for h in [1, 7]:
-    split_scale_save(h)
+    train = df[df["date"] <= q70].copy()
+    val   = df[(df["date"] > q70) & (df["date"] <= q85)].copy()
+    test  = df[df["date"] > q85].copy()
+
+    #if any split is empty, degrade to simple contiguous splits
+    n = len(df)
+    if min(len(train), len(val), len(test)) == 0:
+        n_train = max(int(n * 0.70), 1)
+        n_val   = max(int(n * 0.15), 1)
+        train = df.iloc[:n_train].copy()
+        val   = df.iloc[n_train:n_train + n_val].copy()
+        test  = df.iloc[n_train + n_val:].copy()
+        #if test somehow ends empty, move 1 row from val
+        if len(test) == 0 and len(val) > 1:
+            test = val.tail(1).copy()
+            val  = val.iloc[:-1].copy()
+
+    return train, val, test
+
+def scale_with_train_stats(train: pd.DataFrame, val: pd.DataFrame, test: pd.DataFrame, target_col: str):
+    """
+    Z-score numerical features using TRAIN-only mean/std.
+    Leaves 'date' and target columns unscaled.
+    """
+    keep_plain = ["date", target_col]
+    feat_cols = [c for c in train.columns if c not in keep_plain]
+
+    #compute stats on train
+    mu = train[feat_cols].mean()
+    sd = train[feat_cols].std().replace(0, 1.0)  # avoid divide-by-zero
+
+    def zscore(frame):
+        out = frame.copy()
+        out[feat_cols] = (out[feat_cols] - mu) / sd
+        cols = ["date"] + [c for c in out.columns if c != "date"]
+        return out[cols]
+
+    return zscore(train), zscore(val), zscore(test)
+
+def run_for_h(h: int):
+    fname = PROCESSED / f"btc_features_h{h}_full.csv"
+    df = pd.read_csv(fname, parse_dates=["date"]).sort_values("date").reset_index(drop=True)
+
+    target_col = f"y_btc_close_t+{h}"
+
+    #drop rows with any NA (typical after rolling windows)
+    df = df.dropna().reset_index(drop=True)
+
+    #split
+    train, val, test = autosplit_by_date(df)
+
+    #train-only stats
+    train_z, val_z, test_z = scale_with_train_stats(train, val, test, target_col)
+
+    #save
+    out_train = PROCESSED / f"h{h}_train.csv"
+    out_val   = PROCESSED / f"h{h}_val.csv"
+    out_test  = PROCESSED / f"h{h}_test.csv"
+    train_z.to_csv(out_train, index=False)
+    val_z.to_csv(out_val, index=False)
+    test_z.to_csv(out_test, index=False)
+
+    print(f"[h={h}] train={len(train_z)} val={len(val_z)} test={len(test_z)} "
+          f"span: {df['date'].min().date()} → {df['date'].max().date()}")
+
+if __name__ == "__main__":
+    PROCESSED.mkdir(parents=True, exist_ok=True)
+    for h in (1, 7):
+        run_for_h(h)

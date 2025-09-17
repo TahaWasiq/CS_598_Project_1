@@ -1,62 +1,74 @@
-import pandas as pd
+#!/usr/bin/env python3
+"""
+build-features.py — build model features/targets from bitcoin_aligned.csv
+Reads : data/interim/bitcoin_aligned.csv
+Writes: data/processed/btc_features_h1_full.csv, btc_features_h7_full.csv
+"""
 from pathlib import Path
+import pandas as pd
+import numpy as np
 
-INTERIM = Path("data/interim")
-PROCESSED = Path("data/processed")
+ROOT = Path(__file__).resolve().parents[1]
+INTERIM = ROOT / "data" / "interim"
+PROCESSED = ROOT / "data" / "processed"
 PROCESSED.mkdir(parents=True, exist_ok=True)
 
-def rsi(close, n):
+def rsi(close: pd.Series, n: int = 14) -> pd.Series:
     delta = close.diff()
-    up = delta.clip(lower=0).rolling(n).mean()
-    down = (-delta.clip(upper=0)).rolling(n).mean()
-    rs = up / down
+    up = delta.clip(lower=0)
+    down = -delta.clip(upper=0)
+    roll_up = up.ewm(alpha=1/n, adjust=False).mean()
+    roll_down = down.ewm(alpha=1/n, adjust=False).mean()
+    rs = roll_up / (roll_down.replace(0, np.nan))
     return 100 - (100 / (1 + rs))
 
-def atr(high, low, close, n):
-    tr1 = (high - low).abs()
-    tr2 = (high - close.shift()).abs()
-    tr3 = (low - close.shift()).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+def atr(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> pd.Series:
+    #keeps interface but uses a simple volatility proxy
+    tr = close.diff().abs()
     return tr.rolling(n).mean()
 
-df = pd.read_csv(INTERIM / "aligned_btc_eth_ltc.csv", parse_dates=["date"]).set_index("date").sort_index()
-
-roll_windows = [7, 14, 30]
-lag_max = 14
-new_cols = {}
-
-for k in roll_windows:
-    new_cols[f"btc_roll_mean_close_{k}"] = df["btc_close"].rolling(k).mean()
-    new_cols[f"btc_roll_std_close_{k}"]  = df["btc_close"].rolling(k).std()
-    new_cols[f"btc_roll_mean_ret_{k}"]   = df["btc_ret1"].rolling(k).mean()
-    new_cols[f"btc_roll_vol_ret_{k}"]    = df["btc_ret1"].rolling(k).std()
-    new_cols[f"btc_roll_mean_vol_{k}"]   = df["btc_volume"].rolling(k).mean()
-    new_cols[f"btc_roll_std_vol_{k}"]    = df["btc_volume"].rolling(k).std()
-
-ema12 = df["btc_close"].ewm(span=12, adjust=False).mean()
-ema26 = df["btc_close"].ewm(span=26, adjust=False).mean()
-new_cols["btc_ema12"] = ema12
-new_cols["btc_ema26"] = ema26
-new_cols["btc_macd"]  = ema12 - ema26
-new_cols["btc_rsi14"] = rsi(df["btc_close"], 14)
-new_cols["btc_atr14"] = atr(df["btc_high"], df["btc_low"], df["btc_close"], 14)
-
-assets = ["btc", "eth", "ltc"]
-for asset in assets:
-    for k in range(1, lag_max + 1):
-        new_cols[f"{asset}_ret1_lag{k}"] = df[f"{asset}_ret1"].shift(k)
-    for k in roll_windows:
-        new_cols[f"{asset}_roll_mean_ret_{k}"] = df[f"{asset}_ret1"].rolling(k).mean()
-        new_cols[f"{asset}_roll_vol_ret_{k}"]  = df[f"{asset}_ret1"].rolling(k).std()
-    for k in range(1, lag_max + 1):
-        if f"{asset}_volume" in df:
-            new_cols[f"{asset}_volume_lag{k}"] = df[f"{asset}_volume"].shift(k)
-
-df = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1)
-
-for h in [1, 7]:
+def build_for_horizon(df: pd.DataFrame, h: int) -> pd.DataFrame:
     out = df.copy()
+
+    #target: future close h days ahead
     out[f"y_btc_close_t+{h}"] = out["btc_close"].shift(-h)
-    out = out.dropna()
-    out.reset_index().to_csv(PROCESSED / f"btc_features_h{h}_full.csv", index=False)
-    print(f"[h={h}] Saved:", PROCESSED / f"btc_features_h{h}_full.csv", "rows:", len(out))
+
+    # basic price/return lags
+    for k in range(1, 15):
+        out[f"btc_close_lag{k}"] = out["btc_close"].shift(k)
+        out[f"btc_ret1_lag{k}"] = out["btc_ret1"].shift(k)
+        out[f"btc_volume_lag{k}"] = out["btc_volume"].shift(k)
+
+    for k in (7, 14, 30):
+        out[f"btc_roll_mean_close_{k}"] = out["btc_close"].rolling(k).mean()
+        out[f"btc_roll_std_close_{k}"] = out["btc_close"].rolling(k).std()
+        out[f"btc_roll_mean_ret_{k}"] = out["btc_ret1"].rolling(k).mean()
+        out[f"btc_roll_vol_ret_{k}"] = out["btc_ret1"].rolling(k).std()
+        out[f"btc_roll_mean_vol_{k}"] = out["btc_volume"].rolling(k).mean()
+        out[f"btc_roll_std_vol_{k}"] = out["btc_volume"].rolling(k).std()
+
+    out["btc_ema12"] = out["btc_close"].ewm(span=12, adjust=False).mean()
+    out["btc_ema26"] = out["btc_close"].ewm(span=26, adjust=False).mean()
+    out["btc_macd"] = out["btc_ema12"] - out["btc_ema26"]
+    out["btc_rsi14"] = rsi(out["btc_close"], 14)
+    out["btc_atr14"] = atr(out["btc_close"], out["btc_close"], out["btc_close"], 14)
+
+    #drop rows that don’t have full history or target
+    out = out.dropna().reset_index(drop=True)
+
+    #keep date for tracing but as a normal column
+    out = out[["date"] + [c for c in out.columns if c != "date"]]
+    return out
+
+def main():
+    src = INTERIM / "bitcoin_aligned.csv"
+    df = pd.read_csv(src, parse_dates=["date"]).sort_values("date")
+
+    for h in (1, 7):
+        full = build_for_horizon(df, h)
+        out = PROCESSED / f"btc_features_h{h}_full.csv"
+        full.to_csv(out, index=False)
+        print(f"[h={h}] Saved: {out} rows: {len(full)}")
+
+if __name__ == "__main__":
+    main()

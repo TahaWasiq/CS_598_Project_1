@@ -1,68 +1,72 @@
-import pandas as pd
+#!/usr/bin/env python3
+"""
+clean.py — read one bitcoin.csv, normalize columns, compute daily return,
+and save a tidy aligned daily frame for feature building.
+Reads : data/raw/bitcoin.csv
+Writes: data/interim/bitcoin_aligned.csv
+"""
 from pathlib import Path
+import pandas as pd
+import numpy as np
 
-RAW = Path("data/raw")
-INTERIM = Path("data/interim")
+ROOT = Path(__file__).resolve().parents[1]
+RAW = ROOT / "data" / "raw"
+INTERIM = ROOT / "data" / "interim"
 INTERIM.mkdir(parents=True, exist_ok=True)
 
-def read_coin(path):
+def read_bitcoin(path: Path) -> pd.DataFrame:
+    # load then select and rename the key series we’ll use downstream
     df = pd.read_csv(path)
-    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
-    if "date" not in df.columns:
-        for c in df.columns:
-            if "date" in c:
-                df = df.rename(columns={c: "date"})
-                break
+    required = ["Date", "btc_market_price", "btc_market_cap", "btc_trade_volume"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise KeyError(f"Missing expected columns in {path.name}: {missing}")
+
+    df = df[required].rename(
+        columns={
+            "Date": "date",
+            "btc_market_price": "btc_close",     # treat market price as “close”
+            "btc_market_cap": "btc_mktcap",
+            "btc_trade_volume": "btc_volume",    # use on-chain trade volume
+        }
+    )
+
+    #parse date and sort
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    for k in ["open","high","low","close","volume","marketcap"]:
-        if k in df.columns:
-            df[k] = pd.to_numeric(df[k], errors="coerce")
-    if "marketcap" in df.columns and "mktcap" not in df.columns:
-        df["mktcap"] = df["marketcap"]
-        df = df.drop(columns=["marketcap"])
-    df = df.dropna(subset=["date"]).sort_values("date").drop_duplicates("date")
-    keep = ["date","open","high","low","close","volume","mktcap"]
-    return df[[c for c in keep if c in df.columns]]
+    df = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
 
-def add_returns(df):
-    df = df.copy()
-    df["ret1"] = df["close"].pct_change()
-    ql, qh = df["ret1"].quantile([0.005, 0.995])
-    df["ret1"] = df["ret1"].clip(ql, qh)
-    return df
+    for col in ["btc_close", "btc_mktcap", "btc_volume"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
-def ffill_limit(df, cols, limit=2):
-    for c in cols:
-        if c in df.columns:
-            df[c] = df[c].ffill(limit=limit)
-    return df
+    #remove duplicate dates, keep last
+    df = df.drop_duplicates(subset=["date"], keep="last")
 
-btc = read_coin(RAW / "coin_Bitcoin.csv").set_index("date")
-eth = read_coin(RAW / "coin_Ethereum.csv").set_index("date")
-ltc = read_coin(RAW / "coin_Litecoin.csv").set_index("date")
+    full_idx = pd.date_range(df["date"].min(), df["date"].max(), freq="D")
+    df = df.set_index("date").reindex(full_idx)
+    df.index.name = "date"
 
-btc = add_returns(btc).asfreq("D")
-eth = add_returns(eth).asfreq("D")
-ltc = add_returns(ltc).asfreq("D")
+    #only forward-fill very short gaps
+    df[["btc_close", "btc_mktcap", "btc_volume"]] = df[
+        ["btc_close", "btc_mktcap", "btc_volume"]
+    ].fillna(method="ffill", limit=3)
 
-btc = ffill_limit(btc, ["open","high","low","close","volume","mktcap","ret1"], 2)
-eth = ffill_limit(eth, ["close","volume","mktcap","ret1"], 2)
-ltc = ffill_limit(ltc, ["close","volume","mktcap","ret1"], 2)
+    #daily % return on btc_close
+    df["btc_ret1"] = df["btc_close"].pct_change()
 
-aligned = pd.DataFrame(index=btc.index.copy())
-for col in ["open","high","low","close","volume","mktcap","ret1"]:
-    if col in btc.columns:
-        aligned[f"btc_{col}"] = btc[col]
-for p, df in [("eth", eth), ("ltc", ltc)]:
-    for col in ["close","ret1","volume","mktcap"]:
-        if col in df.columns:
-            aligned[f"{p}_{col}"] = df[col]
+    # final
+    df = df.reset_index().rename(columns={"index": "date"})
+    return df[["date", "btc_close", "btc_volume", "btc_mktcap", "btc_ret1"]]
 
-aligned = aligned[~aligned["btc_close"].isna()]
-aligned = aligned.reset_index().rename(columns={"index":"date"})
-aligned.to_csv(INTERIM / "aligned_btc_eth_ltc.csv", index=False)
+def main():
+    src = RAW / "bitcoin.csv"
+    out = INTERIM / "bitcoin_aligned.csv"
+    btc = read_bitcoin(src)
+    btc.to_csv(out, index=False)
+    print(f"Saved: {out}")
+    print(
+        f"Span: {btc['date'].min().date()} → {btc['date'].max().date()} "
+        f"rows: {len(btc)}\nColumns: {btc.columns.tolist()}"
+    )
 
-print("Saved:", INTERIM / "aligned_btc_eth_ltc.csv")
-print("Span:", aligned["date"].min().date(), "→", aligned["date"].max().date(), "rows:", len(aligned))
-print("Columns:", list(aligned.columns))
-#test
+if __name__ == "__main__":
+    main()
