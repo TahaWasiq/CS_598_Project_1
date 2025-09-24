@@ -3,10 +3,11 @@ Purpose: Chronological 70/15/15 split + z-score scaling using TRAIN-only stats.
 Reads: data/processed/btc_features_h1_full.csv, btc_features_h7_full.csv
 Writes: data/processed/h1_{train,val,test}.csv and h7_{train,val,test}.csv
 """
+import numpy as np
 import pandas as pd
 from pathlib import Path
 
-PROCESSED = Path("data/processed")
+PROCESSED = Path("../data/processed")
 
 def autosplit_by_date(df: pd.DataFrame):
     """

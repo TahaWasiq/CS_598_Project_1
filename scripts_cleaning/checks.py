@@ -23,7 +23,7 @@ def summarize(name: str):
 def main():
     for h in (1, 7):
         for split in ("train", "val", "test"):
-            summarize(f"h{h}_{split}.csv")
+            summarize(f"h{h}_vif_{split}.csv")
 
 if __name__ == "__main__":
     main()

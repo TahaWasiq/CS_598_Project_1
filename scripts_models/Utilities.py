@@ -1,12 +1,18 @@
 import pandas as pd
 import numpy as np
-from sklearn.linear_model import LinearRegression, Ridge, Lasso
+import warnings
+from sklearn.exceptions import ConvergenceWarning
+from sklearn.linear_model import LinearRegression, Ridge, RidgeCV, LassoCV
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import SplineTransformer,StandardScaler
 import matplotlib.pyplot as plt
 import seaborn as sns
 from dataclasses import dataclass
 from typing import Dict, Any, Tuple, List, Optional
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+
+
 
 @dataclass
 class DataBundle:
@@ -26,7 +32,9 @@ class Metrics:
     mse: float
     rmse: float
     mae: float
+    rmse_nd: float
+    mae_nd: float
     r2: float
 
     def as_row(self) -> Dict[str, float]:
-        return {"MSE": self.mse, "RMSE": self.rmse, "MAE": self.mae, "R2": self.r2}
+        return {"MSE": self.mse, "RMSE": self.rmse, "MAE": self.mae, 'RMSE_ND': self.rmse_nd, 'MAE_ND': self.mae_nd, "R2": self.r2}
