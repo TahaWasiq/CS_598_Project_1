@@ -1,6 +1,14 @@
 from Utilities import *
 
 
+from typing import List, Optional
+from sklearn.feature_selection import mutual_info_regression
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import SplineTransformer, StandardScaler
+from sklearn.model_selection import GridSearchCV, PredefinedSplit
+from sklearn.base import clone
+
+
 # === Model Wrappers ===========================================================
 class ModelWrapper:
     """
@@ -122,26 +130,10 @@ def build_default_models(random_state: int = 42) -> List[ModelWrapper]:
         ModelWrapper("Linear", LinearRegression()),
         ModelWrapper("Ridge", Ridge(alpha=1.0, random_state=random_state)),
         ModelWrapper("Lasso", Lasso(alpha=0.01, random_state=random_state, max_iter=10000)),
+
     ]
 
-# === Data & Scaling Managers ==================================================
-class DataManager:
-    """
-    prepares data
-    """
-    @staticmethod
-    def prepare(train_df, val_df, test_df, target_col: str, name: str) -> DataBundle:
-        feature_cols = [c for c in train_df.columns if c not in ["date", target_col]]
-        return DataBundle(
-            X_train=train_df[feature_cols],
-            y_train=train_df[target_col],
-            X_val=val_df[feature_cols],
-            y_val=val_df[target_col],
-            X_test=test_df[feature_cols],
-            y_test=test_df[target_col],
-            feature_cols=feature_cols,
-            name=name,
-        )
+
 
 class ScalerManager:
     """
@@ -169,22 +161,117 @@ class ScalerManager:
             feature_cols=bundle.feature_cols, name=bundle.name
         )
 
+#==== Spline ===============================
+class Bspline:
+    def __init__(self,bundle):
+        self.bundle=bundle
 
+    def customSpline(self):
+        """
+        Creates a basis spline model with Ridge.
+        """
+
+        Xtr, ytr = self.bundle.X_train.copy(), self.bundle.y_train.copy()
+        Xva, yva = self.bundle.X_val.copy(), self.bundle.y_val.copy()
+        Xte, yte = self.bundle.X_test.copy(), self.bundle.y_test.copy()
+
+        # align columns (order matters for transforms)
+        Xva = Xva[Xtr.columns]
+        Xte = Xte[Xtr.columns]
+
+        candidates = ['btc_close', 'btc_ema12', 'btc_ema26', 'btc_roll_mean_close_7', 'btc_rsi14', 'btc_macd',
+                      'btc_atr14', 'btc_roll_std_close_7', 'btc_ret1']
+        candidates = [c for c in candidates if c in Xtr.columns]
+
+        def pick_top_k_spline_cols(X, y, pool, k=4):
+            if not pool: return []
+            mi = mutual_info_regression(X[pool].values, y.values, random_state=598)
+            order = np.argsort(mi)[::-1]
+            return [pool[i] for i in order[:min(k, len(pool))]]
+
+        smooth_cols = pick_top_k_spline_cols(Xtr, ytr, candidates, k=4)
+        if not smooth_cols and "btc_close" in Xtr.columns:
+            smooth_cols = ["btc_close"]
+
+        passthrough_cols = [c for c in Xtr.columns if c not in smooth_cols]
+
+        print("Bundle: ", self.bundle.name, "Spline columns (selected):", smooth_cols)
+        print("Bundle: ", self.bundle.name, "Passthrough features     :", len(passthrough_cols))
+
+        #  Build transformer: few splines + passthrough --------
+        pre = ColumnTransformer(
+            transformers=[
+                ("num", "passthrough", passthrough_cols),
+                ("spl", SplineTransformer(
+                    degree=3, n_knots=8, knots="quantile",
+                    extrapolation="linear", include_bias=False
+                ), smooth_cols),
+            ],
+            remainder="drop",
+            sparse_threshold=0.0,  # force dense for reliable scaling
+        )
+
+        steps = [("pre", pre)]
+
+        steps.append(("ridge", Ridge(random_state=598)))
+        pipe = Pipeline(steps)
+
+        # Small grid on VAL via PredefinedSplit --------
+        X_trval = pd.concat([Xtr, Xva], axis=0)
+        y_trval = np.r_[ytr.values, yva.values]
+        test_fold = np.r_[np.full(len(Xtr), -1), np.zeros(len(Xva), dtype=int)]  # -1=TRAIN, 0=VAL
+        ps = PredefinedSplit(test_fold)
+
+        grid = {
+            "pre__spl__n_knots": [6, 8, 10, 12],
+            "ridge__alpha": np.logspace(0, 6, 7),
+        }
+
+        gs = GridSearchCV(pipe, grid, scoring="neg_mean_squared_error", cv=ps, n_jobs=-1, verbose=0)
+
+        gs.fit(X_trval, y_trval)
+        print("Bundle: ", self.bundle.name, "Best params:", gs.best_params_, "| Val MSE:", -gs.best_score_)
+
+        # Refit on TRAIN only (true VAL metrics), then TRAIN+VAL (TEST) --------
+        best = clone(gs.best_estimator_)
+
+        # VAL metrics (train-only refit)
+        best.fit(Xtr, ytr)
+        yhat_va = best.predict(Xva)
+
+        # TEST metrics (train+val refit)
+        best_tv = clone(gs.best_estimator_)
+        best_tv.fit(X_trval, y_trval)
+        yhat_te = best_tv.predict(Xte)
+
+        stats = self.evaluate(yva, yhat_va, yte, yhat_te)
+        return stats
+    def evaluate(self,yva,yhat_va,yte,yhat_te):
+        return {
+            "Validation": ModelWrapper._eval(yva, yhat_va),
+            "Test": ModelWrapper._eval(yte, yhat_te),
+        }
 # === Experiment Runner & Reporter ============================================
 class ExperimentRunner:
     """
     Runs multiple models on a given DataBundle (one horizon).
     """
+
     def __init__(self, bundle: DataBundle, scaled: bool = False):
         self.bundle = bundle
         self.scaled = scaled  # purely for labeling
         self.models: List[ModelWrapper] = build_default_models()
+
+
+
 
     def run(self) -> pd.DataFrame:
         """
         Trains each model on train, gets metrics on val/test, returns a tidy DataFrame.
         """
         rows = []
+        BasisSpliner=Bspline(self.bundle)
+        customMetrics=BasisSpliner.customSpline()
         for mw in self.models:
             mw.fit(self.bundle.X_train, self.bundle.y_train)
             metrics = mw.evaluate(self.bundle)
@@ -196,6 +283,14 @@ class ExperimentRunner:
                     "Dataset": split_name,
                     **met.as_row(),
                 })
+        for split_name, met in customMetrics.items():
+            rows.append({
+                "Horizon": self.bundle.name,
+                "Scaled?": "Yes" if self.scaled else "No",
+                "Model": "B Spline with Ridge",
+                "Dataset": split_name,
+                **met.as_row(),
+            })
         return pd.DataFrame(rows)
 
 class ResultsVisualizer:
@@ -222,53 +317,3 @@ class ResultsVisualizer:
         plt.tight_layout()
         plt.show()
 # === Experiment Runner & Reporter ============================================
-class ExperimentRunner:
-    """
-    Runs multiple models on a given DataBundle (one horizon).
-    """
-    def __init__(self, bundle: DataBundle, scaled: bool = False):
-        self.bundle = bundle
-        self.scaled = scaled  # purely for labeling
-        self.models: List[ModelWrapper] = build_default_models()
-
-    def run(self) -> pd.DataFrame:
-        """
-        Trains each model on train, gets metrics on val/test, returns a tidy DataFrame.
-        """
-        rows = []
-        for mw in self.models:
-            mw.fit(self.bundle.X_train, self.bundle.y_train)
-            metrics = mw.evaluate(self.bundle)
-            for split_name, met in metrics.items():
-                rows.append({
-                    "Horizon": self.bundle.name,
-                    "Scaled?": "Yes" if self.scaled else "No",
-                    "Model": mw.name,
-                    "Dataset": split_name,
-                    **met.as_row(),
-                })
-        return pd.DataFrame(rows)
-
-class ResultsVisualizer:
-    """
-    Lightweight plotting helpers
-    """
-    @staticmethod
-    def bar_by_model(df: pd.DataFrame, metric: str = "RMSE", horizon: Optional[str] = None):
-        # Filter optional horizon
-        plot_df = df.copy()
-        if horizon is not None:
-            plot_df = plot_df[plot_df["Horizon"] == horizon]
-
-        # Pivot to have models on x, datasets as hue-like
-        pivoted = plot_df.pivot_table(
-            index=["Model"], columns=["Dataset"], values=metric, aggfunc="mean"
-        ).sort_index()
-
-        # Simple bar plot
-        ax = pivoted.plot(kind="bar", figsize=(9, 5), title=f"{metric} by Model")
-        ax.set_ylabel(metric)
-        ax.set_xlabel("Model")
-        ax.grid(axis="y", alpha=0.3)
-        plt.tight_layout()
-        plt.show()

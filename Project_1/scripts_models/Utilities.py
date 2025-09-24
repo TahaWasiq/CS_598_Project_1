@@ -2,11 +2,15 @@ import pandas as pd
 import numpy as np
 from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import SplineTransformer,StandardScaler
 import matplotlib.pyplot as plt
 import seaborn as sns
 from dataclasses import dataclass
 from typing import Dict, Any, Tuple, List, Optional
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+
+
 
 @dataclass
 class DataBundle:
