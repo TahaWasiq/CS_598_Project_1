@@ -49,7 +49,7 @@ if __name__ == "__main__":
     # Check for colinearity and remove features that have an infinite variance inflation factor (VIF), meaning they are perfectly correlated
     # with at least one other feature.
     h1_X_train = h1_train[[c for c in h1_train.columns if c not in ['date', 'y_btc_close_t+1']]]
-    h1_X_train, columns_to_remove = remove_features_vif(h1_X_train, threshold=float('inf'))
+    h1_X_train, columns_to_remove = remove_features_vif(h1_X_train, threshold=1000)
     h1_train.drop(columns=columns_to_remove).to_csv(f'../data/processed/h1_vif_train.csv', index=False)
 
     # Remove these same columns for the other data sets and save each of them to a new csv file.

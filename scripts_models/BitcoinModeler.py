@@ -136,7 +136,7 @@ class ModelWrapper:
 
 def build_default_models() -> List[ModelWrapper]:
     """
-    Sets up models .
+    Sets up models.
     """
     return [
         ModelWrapper("Linear", LinearRegression()),
@@ -193,12 +193,12 @@ class ScalerManager:
 class Bspline:
     def __init__(self,bundle):
         self.bundle=bundle
+        self.name = "B-Spline with Ridge"
 
     def customSpline(self):
         """
         Creates a basis spline model with Ridge.
         """
-
         Xtr, ytr = self.bundle.X_train.copy(), self.bundle.y_train.copy()
         Xva, yva = self.bundle.X_val.copy(), self.bundle.y_val.copy()
         Xte, yte = self.bundle.X_test.copy(), self.bundle.y_test.copy()
@@ -268,13 +268,16 @@ class Bspline:
         yhat_va = best.predict(Xva)
 
         # TEST metrics (train+val refit)
-        best_tv = clone(gs.best_estimator_)
-        best_tv.fit(X_trval, y_trval)
-        yhat_te = best_tv.predict(Xte)
+        self.best_tv = clone(gs.best_estimator_)
+        self.best_tv.fit(X_trval, y_trval)
+        yhat_te = self.best_tv.predict(Xte)
 
         stats = self.evaluate(yva, yhat_va, yte, yhat_te)
         return stats
     
+    def predict(self, X):
+        return self.best_tv.predict(X)
+
     def evaluate(self,yva,yhat_va,yte,yhat_te):
         return {
             "Validation": ModelWrapper._eval(yva, yhat_va),
@@ -297,8 +300,7 @@ class ExperimentRunner:
         Trains each model on train, gets metrics on val/test, returns a tidy DataFrame.
         """
         rows = []
-        BasisSpliner=Bspline(self.bundle)
-        customMetrics=BasisSpliner.customSpline()
+        
         for mw in self.models:
             mw.fit(self.bundle.X_train, self.bundle.y_train)
             metrics = mw.evaluate(self.bundle)
@@ -310,11 +312,14 @@ class ExperimentRunner:
                     "Dataset": split_name,
                     **met.as_row(),
                 })
+        BasisSpliner = Bspline(self.bundle)
+        customMetrics = BasisSpliner.customSpline()
+        self.models.append(BasisSpliner)
         for split_name, met in customMetrics.items():
             rows.append({
                 "Horizon": self.bundle.name,
                 "Scaled?": "Yes" if self.scaled else "No",
-                "Model": "B Spline with Ridge",
+                "Model": "B-Spline with Ridge",
                 "Dataset": split_name,
                 **met.as_row(),
             })
