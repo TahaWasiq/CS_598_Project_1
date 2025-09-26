@@ -68,9 +68,11 @@ class ModelWrapper:
         """
         Returns metrics for Validation and Test sets.
         """
+        pred_train = self.model.predict(bundle.X_train)
         pred_val = self.model.predict(bundle.X_val)
         pred_test = self.model.predict(bundle.X_test)
         return {
+            "Training": self._eval(bundle.y_train, pred_train),
             "Validation": self._eval(bundle.y_val, pred_val),
             "Test": self._eval(bundle.y_test, pred_test),
         }
@@ -93,6 +95,8 @@ class ModelWrapper:
             coef_df['abs_coef'] = np.abs(coef_df['coefficient'])
             top_features = coef_df.nlargest(top_n, 'abs_coef')
 
+            print(f'Magnitude of the coefficients are: {np.linalg.norm(self.model.coef_)}')
+
             plt.figure(figsize=(12, 8))
             colors = ['red' if x < 0 else 'blue' for x in top_features['coefficient']]
             plt.barh(range(len(top_features)), top_features['coefficient'], color=colors)
@@ -101,8 +105,8 @@ class ModelWrapper:
             plt.title(f'{title} - Top {top_n} Features by Absolute Value', fontsize=24)
             plt.axvline(x=0, color='black', linestyle='-', alpha=0.3)
             plt.tight_layout()
-            plt.show()
             plt.savefig(plot_name, format='pdf', bbox_inches='tight')
+            plt.show()
 
             return top_features
         else:
@@ -127,11 +131,11 @@ class ModelWrapper:
         else:
             winners_idx = val.groupby("Horizon")[metric].idxmin()
 
-        winners = val.loc[winners_idx, ["Horizon", "Model", "Scaled?", metric]].rename(
+        winners = val.loc[winners_idx, ["Horizon", "Model", metric]].rename(
             columns={metric: f"Val_{metric}"})
         test = df[df["Dataset"] == "Test"].copy()
-        merged = winners.merge(test, on=["Horizon", "Model", "Scaled?"], how="left", suffixes=("", "_Test"))
-        cols = ["Horizon", "Model", "Scaled?", f"Val_{metric}", "MSE", "RMSE", "MAE", "RMSE_ND", "MAE_ND", "R2"]
+        merged = winners.merge(test, on=["Horizon", "Model"], how="left", suffixes=("", "_Test"))
+        cols = ["Horizon", "Model", f"Val_{metric}", "MSE", "RMSE", "MAE", "RMSE_ND", "MAE_ND", "R2"]
         return merged[cols].sort_values(["Horizon"]).reset_index(drop=True)
 
 def build_default_models() -> List[ModelWrapper]:
@@ -272,14 +276,18 @@ class Bspline:
         self.best_tv.fit(X_trval, y_trval)
         yhat_te = self.best_tv.predict(Xte)
 
-        stats = self.evaluate(yva, yhat_va, yte, yhat_te)
+        # Train metrics
+        yhat_tr = self.best_tv.predict(Xtr)
+
+        stats = self.evaluate(ytr, yhat_tr, yva, yhat_va, yte, yhat_te)
         return stats
     
     def predict(self, X):
         return self.best_tv.predict(X)
 
-    def evaluate(self,yva,yhat_va,yte,yhat_te):
+    def evaluate(self,ytr, yhat_tr, yva, yhat_va, yte, yhat_te):
         return {
+            "Training": ModelWrapper._eval(ytr, yhat_tr),
             "Validation": ModelWrapper._eval(yva, yhat_va),
             "Test": ModelWrapper._eval(yte, yhat_te),
         }
@@ -307,7 +315,7 @@ class ExperimentRunner:
             for split_name, met in metrics.items():
                 rows.append({
                     "Horizon": self.bundle.name,
-                    "Scaled?": "Yes" if self.scaled else "No",
+                    #"Scaled?": "Yes" if self.scaled else "No",
                     "Model": mw.name,
                     "Dataset": split_name,
                     **met.as_row(),
@@ -318,7 +326,7 @@ class ExperimentRunner:
         for split_name, met in customMetrics.items():
             rows.append({
                 "Horizon": self.bundle.name,
-                "Scaled?": "Yes" if self.scaled else "No",
+                #"Scaled?": "Yes" if self.scaled else "No",
                 "Model": "B-Spline with Ridge",
                 "Dataset": split_name,
                 **met.as_row(),
