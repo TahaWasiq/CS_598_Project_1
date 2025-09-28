@@ -102,7 +102,7 @@ class ModelWrapper:
             plt.barh(range(len(top_features)), top_features['coefficient'], color=colors)
             plt.yticks(range(len(top_features)), top_features['feature'])
             plt.xlabel('Coefficient Value', fontsize=24)
-            plt.title(f'{title} - Top {top_n} Features by Absolute Value', fontsize=24)
+            plt.title(f'{title} - Top {top_n} features by magnitude', fontsize=24)
             plt.axvline(x=0, color='black', linestyle='-', alpha=0.3)
             plt.tight_layout()
             plt.savefig(plot_name, format='pdf', bbox_inches='tight')

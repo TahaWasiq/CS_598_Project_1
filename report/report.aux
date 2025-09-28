@@ -1,0 +1,30 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Data Cleaning and Configuration}{1}{section.2}\protected@file@percent }
+\newlabel{sec:data_cleaning_configuration}{{2}{1}{Data Cleaning and Configuration}{section.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Overview of pipeline}{1}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Initial cleaning}{2}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Additional features}{2}{subsection.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}Data splitting and standardization}{2}{subsection.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.5}Analyzing collinearity and removing high VIF features}{3}{subsection.2.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}Data checks and verification}{3}{subsection.2.6}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces  Number of days (i.e., number of rows in each file), start date, and end date for each of the six data sets after applying the cleaning and configuration operations described in Section~\ref {sec:data_cleaning_configuration}. Each file contains 58~features. For reference, the raw csv file contains 2920 rows spanning from 2010-02-23 to 2018-02-20, with 22 features. The vast majority of the $\sim $300 rows that were dropped are in the first several months of 2010, where the Bitcoin price is listed at \$0 in the raw file. Other reasons for dropping include duplicate dates or missing/invalid entries for the target or features.}}{3}{table.1}\protected@file@percent }
+\newlabel{tab:datasets}{{1}{3}{Number of days (i.e., number of rows in each file), start date, and end date for each of the six data sets after applying the cleaning and configuration operations described in Section~\ref {sec:data_cleaning_configuration}. Each file contains 58~features. For reference, the raw csv file contains 2920 rows spanning from 2010-02-23 to 2018-02-20, with 22 features. The vast majority of the $\sim $300 rows that were dropped are in the first several months of 2010, where the Bitcoin price is listed at \$0 in the raw file. Other reasons for dropping include duplicate dates or missing/invalid entries for the target or features}{table.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Methodology}{3}{section.3}\protected@file@percent }
+\newlabel{sec:methodology}{{3}{3}{Methodology}{section.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Results}{4}{section.4}\protected@file@percent }
+\newlabel{sec:results}{{4}{4}{Results}{section.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Results for the four regression models on the two horizons. For both horizons, the model that performs best on the validation set and test set is the B-Spline with Ridge model, highlighted in blue. RMSE\_ND and MAE\_ND denote nondimensionalized versions of the root-mean-squared error (RMSE) and mean absolute error (MAE), respectively, which align well with trends in $R^2$, as explained in the text.}}{4}{figure.1}\protected@file@percent }
+\newlabel{fig:summary_table}{{1}{4}{Results for the four regression models on the two horizons. For both horizons, the model that performs best on the validation set and test set is the B-Spline with Ridge model, highlighted in blue. RMSE\_ND and MAE\_ND denote nondimensionalized versions of the root-mean-squared error (RMSE) and mean absolute error (MAE), respectively, which align well with trends in $R^2$, as explained in the text}{figure.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Time series of Bitcoin prices. The $x$-axis denotes the data index (row index), which is a surrogate for the date because the files are sorted chronologically. Results here are for~$h=1$ (plot for $h=7$ is similar).}}{5}{figure.2}\protected@file@percent }
+\newlabel{fig:prices_h1}{{2}{5}{Time series of Bitcoin prices. The $x$-axis denotes the data index (row index), which is a surrogate for the date because the files are sorted chronologically. Results here are for~$h=1$ (plot for $h=7$ is similar)}{figure.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Predicted vs.\ actual Bitcoin prices for the B-spline with Ridge model for:~(a)~the $h=1$ horizon and~(b)~the $h=7$ horizon. The black line shows the line $y=x$, indicating a perfect prediction, and the blue band denotes $\pm $20\% error bars around that line.}}{5}{figure.3}\protected@file@percent }
+\newlabel{fig:actual_vs_predicted}{{3}{5}{Predicted vs.\ actual Bitcoin prices for the B-spline with Ridge model for:~(a)~the $h=1$ horizon and~(b)~the $h=7$ horizon. The black line shows the line $y=x$, indicating a perfect prediction, and the blue band denotes $\pm $20\% error bars around that line}{figure.3}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Top~20 regression coefficients by magnitude for the Lasso model for~a)~$h=1$ and~(b)~$h=7$.}}{6}{figure.4}\protected@file@percent }
+\newlabel{fig:lasso_coefficients}{{4}{6}{Top~20 regression coefficients by magnitude for the Lasso model for~a)~$h=1$ and~(b)~$h=7$}{figure.4}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Conclusions}{6}{section.5}\protected@file@percent }
+\newlabel{sec:conclusions}{{5}{6}{Conclusions}{section.5}{}}
+\gdef \@abspage@last{6}
